@@ -4,7 +4,7 @@ github.com/hashicorp/errwrap
 github.com/hashicorp/go-multierror
 # github.com/veandco/go-sdl2 v0.3.0
 github.com/veandco/go-sdl2/sdl
-# gobot.io/x/gobot v1.12.0
+# gobot.io/x/gobot v1.12.1-0.20181219165328-58db149a40a1
 gobot.io/x/gobot
 gobot.io/x/gobot/platforms/dji/tello
 gobot.io/x/gobot/platforms/joystick

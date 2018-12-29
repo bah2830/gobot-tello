@@ -6,14 +6,13 @@ import (
 	"os/exec"
 	"time"
 
-	"gobot.io/x/gobot/platforms/joystick"
-
 	"gobot.io/x/gobot"
 	"gobot.io/x/gobot/platforms/dji/tello"
+	"gobot.io/x/gobot/platforms/joystick"
 )
 
 const (
-	videoBitrate = tello.VideoBitRate15M
+	videoBitrate = tello.VideoBitRate4M
 )
 
 var (
@@ -24,8 +23,8 @@ var (
 		RightX: AxisLimit{Min: -32768, Max: 32767},
 	}
 
-	pressed = AxisPressed{}
-	toggled = ButtonToggled{}
+	pressed       = AxisPressed{}
+	currentStatus = &CurrentStatus{}
 )
 
 type Axis struct {
@@ -50,6 +49,14 @@ type ButtonToggled struct {
 	Y bool
 }
 
+type CurrentStatus struct {
+	Flying         bool
+	FastMode       bool
+	BatteryPercent int8
+	WifiSignal     int8
+	Status         string
+}
+
 func main() {
 	controllerAdapter := joystick.NewAdaptor()
 	stick := joystick.NewDriver(controllerAdapter, joystick.Xbox360)
@@ -57,7 +64,7 @@ func main() {
 	drone := tello.NewDriver("8888")
 
 	work := func() {
-		mpv := exec.Command("mpv", "--fps", "60", "-")
+		mpv := exec.Command("mplayer", "-fps", "60", "-")
 		mpvIn, _ := mpv.StdinPipe()
 		if err := mpv.Start(); err != nil {
 			fmt.Println(err)
@@ -80,39 +87,49 @@ func main() {
 		})
 		drone.On(tello.FlightDataEvent, func(data interface{}) {
 			flightData := data.(*tello.FlightData)
-			printData(flightData)
+			currentStatus.SetData(flightData)
 		})
 
 		// Setup controller controls
-		stick.On(joystick.APress, func(data interface{}) {
-			drone.TakeOff()
-		})
-		stick.On(joystick.BPress, func(data interface{}) {
-			drone.Land()
-		})
-		stick.On(joystick.YPress, func(data interface{}) {
-			if toggled.Y {
-				toggled.Y = false
-				drone.SetSlowMode()
-				fmt.Println("Slow mode enabled")
+		stick.On(joystick.StartPress, func(data interface{}) {
+			if currentStatus.Flying {
+				drone.Land()
+				currentStatus.SetStatus("landing")
+				currentStatus.Flying = false
 			} else {
-				toggled.Y = true
-				drone.SetFastMode()
-				fmt.Println("Fast mode enabled")
+				drone.TakeOff()
+				currentStatus.SetStatus("take off")
+				currentStatus.Flying = true
 			}
 		})
-		stick.On(joystick.L1Press, func(data interface{}) {
+
+		stick.On(joystick.RBPress, func(data interface{}) {
+			if currentStatus.FastMode {
+				currentStatus.ModeSlow()
+				drone.SetSlowMode()
+
+			} else {
+				currentStatus.ModeFast()
+				drone.SetFastMode()
+			}
+		})
+
+		stick.On(joystick.APress, func(data interface{}) {
 			drone.BackFlip()
 		})
-		stick.On(joystick.R1Press, func(data interface{}) {
+
+		stick.On(joystick.YPress, func(data interface{}) {
 			drone.FrontFlip()
 		})
-		stick.On(joystick.L2Press, func(data interface{}) {
+
+		stick.On(joystick.XPress, func(data interface{}) {
 			drone.LeftFlip()
 		})
-		stick.On(joystick.R2Press, func(data interface{}) {
+
+		stick.On(joystick.BPress, func(data interface{}) {
 			drone.RightFlip()
 		})
+
 		stick.On(joystick.RightX, func(data interface{}) {
 			input := data.(int16)
 			percent := xboxLimits.RightX.ToPercent(input)
@@ -132,6 +149,7 @@ func main() {
 				}
 			}
 		})
+
 		stick.On(joystick.RightY, func(data interface{}) {
 			input := data.(int16)
 			percent := xboxLimits.RightY.ToPercent(input)
@@ -151,6 +169,7 @@ func main() {
 				}
 			}
 		})
+
 		stick.On(joystick.LeftX, func(data interface{}) {
 			input := data.(int16)
 			percent := xboxLimits.LeftX.ToPercent(input)
@@ -170,6 +189,7 @@ func main() {
 				}
 			}
 		})
+
 		stick.On(joystick.LeftY, func(data interface{}) {
 			input := data.(int16)
 			percent := xboxLimits.LeftY.ToPercent(input)
@@ -220,11 +240,39 @@ func (a AxisLimit) ToPercent(input int16) int {
 	return percent
 }
 
-func printData(data *tello.FlightData) {
+func (s *CurrentStatus) SetData(data *tello.FlightData) {
+	s.BatteryPercent = data.BatteryPercentage
+	s.WifiSignal = data.WifiStrength
+
+	s.Print()
+}
+
+func (s *CurrentStatus) ModeFast() {
+	s.FastMode = true
+	s.Print()
+}
+
+func (s *CurrentStatus) ModeSlow() {
+	s.FastMode = false
+	s.Print()
+}
+
+func (s *CurrentStatus) SetStatus(status string) {
+	s.Status = status
+	s.Print()
+}
+
+func (s *CurrentStatus) Print() {
+	mode := "slow"
+	if s.FastMode {
+		mode = "fast"
+	}
+
 	fmt.Printf(
-		"\rFast Mode: %t\t\tBattery: %d%%\t\tWifi: %d",
-		toggled.Y,
-		data.BatteryPercentage,
-		data.WifiStrength,
+		"\rStatus: %-20vMode: %-15vBattery: %-10vWifi: %-10v",
+		s.Status,
+		mode,
+		s.BatteryPercent,
+		s.WifiSignal,
 	)
 }
